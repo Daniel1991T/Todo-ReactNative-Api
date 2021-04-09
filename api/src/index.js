@@ -17,6 +17,28 @@ const typeDefs = gql`
     myProjects: [Project!]!
   }
 
+  type Mutation {
+    signUp(input: SingUpInput): AuthUser!
+    signIn(input: SingInInput): AuthUser!
+  }
+
+  input SingInInput {
+    email: String!
+    password: String!
+  }
+
+  input SingUpInput {
+    email: String!, 
+    password: String!, 
+    name: String!, 
+    avatar: String
+  }
+
+  type AuthUser {
+    user: User!
+    token: String!
+  }
+
   type User {
     id: ID!
     name: String!
@@ -44,6 +66,14 @@ const typeDefs = gql`
 const resolvers = {
   Query: {
    myProjects: () => []
+  },
+  Mutation: {
+    signUp: (_, { input }) => {
+      console.log(input)
+    },
+    signIn: () => {
+
+    }
   }
 };
 const startDB = async () => { 
