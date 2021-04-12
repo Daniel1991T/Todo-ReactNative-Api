@@ -7,7 +7,7 @@ dotenv.config();
 
 
 
-const { DB_URI, DB_NAME, JWT_SECRET } = process.env;
+const { DB_URI, DB_NAME, JWT_SECRET, DB_LOCAL_URI, PORT } = process.env;
 
 const getToken = user => jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: '7 days' });
 
@@ -40,6 +40,10 @@ const typeDefs = gql`
     updateProject(id: ID!, title: String!): Project
     deletedProject(id: ID!): Boolean!
     addUserToProject(projectId: ID!, userId: ID!): Project
+
+    createToDo(content: String!, projectId: ID!): ToDo!
+    updateToDo(content: String, id: ID!, isCompleted: Boolean): ToDo!
+    deleteToDo(id: ID!): Boolean!
   }
 
   input SingInInput {
@@ -100,6 +104,7 @@ const resolvers = {
     }
   },
   Mutation: {
+    // authentication
     signUp: async (_, { input }, { db }) => {
       const hashedPassword = bcrypt.hashSync(input.password);
       const user = {
@@ -128,6 +133,7 @@ const resolvers = {
         token: getToken(user)
       }
     },
+    // Project item
     createProject: async (_, { title }, { db, user }) => {
       if (!user) {
         throw new Error("Authentication error. Please sign in!");
@@ -187,23 +193,71 @@ const resolvers = {
         });
       project.userIDs.push(ObjectID(userId));
       return project;
-    } 
+    },
+    // Todo Item
+    createToDo: async (_, { content, projectId }, { db, user}) => {
+      if (!user) {
+        throw new Error("Authentication error. Please sign in!");
+      }
+      const newTodo = {
+        content,
+        isCompleted: false,
+        projectId: ObjectID(projectId)
+      }
+      const result = await db.collection("ToDo").insertOne(newTodo);
+      console.log(result.ops[0])
+      return result.ops[0];
+    },
+    updateToDo: async (_, data , { db, user }) => {
+      if (!user) {
+        throw new Error("Authentication error. Please sign in!");
+      }
+      const result = await db.collection('ToDo')
+                              .updateOne({
+                                _id: ObjectID(data.id)
+                              }, {
+                                $set: data
+                              });
+      return await db.collection("ToDo").findOne({ _id: ObjectID(data.id)});
+    },
+    deleteToDo: async (_, { id }, { db, user }) => {
+      if (!user) {
+        throw new Error("Authentication error. Please sign in!");
+      }
+      await db.collection("ToDo").removeOne({ _id: ObjectID(id)})
+      return true;
+    }
   },
   User: {
     id: ({ _id, id }) => _id || id
   },
   Project: {
     id: ({ _id, id }) => _id || id,
-    progress: () => 0,
+    progress: async ({ _id }, _, { db }) => {
+      const todos = await db.collection("Todos").find({projectId: ObjectID(_id)}).toArray();
+      if(todos.length === 0) return 0;
+      const completed = todos.filter(todo => todo.isCompleted);
+      return 100 * completed.length / todos.length;
+    },
     users: async ({ userIDs }, _, { db }) => Promise.all(
       userIDs.map(userID => (
         db.collection("Users").findOne({ _id: userID })
       ))
+    ),
+    todos: async ({ _id }, _, { db }) => (
+      await db.collection('ToDo').find({ projectId: ObjectID(_id)}).toArray()
     )
+  },
+  ToDo: {
+    id: ({ _id, id }) => _id || id,
+    project: async ({ projectId }, _, { db }) => {
+      return await db.collection('ProjectList').findOne({ _id: ObjectID(projectId)})
+    }
   }
 };
 const startDB = async () => {
-  const client = new MongoClient(DB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+  console.log(DB_URI)
+  const client = new MongoClient(DB_LOCAL_URI, { useNewUrlParser: true, useUnifiedTopology: true });
   await client.connect();
   const db = client.db(DB_NAME);
   // The ApolloServer constructor requires two parameters: your schema
